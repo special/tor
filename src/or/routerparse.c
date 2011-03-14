@@ -3613,6 +3613,13 @@ rend_parse_v2_service_descriptor(rend_service_descriptor_t **parsed_out,
     log_info(LD_REND, "Descriptor does not start correctly.");
     goto err;
   }
+  /* Check length. */
+  if (strlen(desc) > REND_DESC_MAX_SIZE) {
+    log_warn(LD_REND, "Descriptor length is %i which exceeds "
+             "maximum rendezvous descriptor size of %i bytes.",
+             (int)strlen(desc), REND_DESC_MAX_SIZE);
+    goto err;
+  }
   /* Compute descriptor hash for later validation. */
   if (router_get_hash_impl(desc, strlen(desc), desc_hash,
                            "rendezvous-service-descriptor ",
@@ -3626,13 +3633,6 @@ rend_parse_v2_service_descriptor(rend_service_descriptor_t **parsed_out,
     eos = desc + strlen(desc);
   else
     eos = eos + 1;
-  /* Check length. */
-  if (strlen(desc) > REND_DESC_MAX_SIZE) {
-    log_warn(LD_REND, "Descriptor length is %i which exceeds "
-             "maximum rendezvous descriptor size of %i kilobytes.",
-             (int)strlen(desc), REND_DESC_MAX_SIZE);
-    goto err;
-  }
   /* Tokenize descriptor. */
   area = memarea_new();
   if (tokenize_string(area, desc, eos, tokens, desc_token_table, 0)) {
