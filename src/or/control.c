@@ -3538,11 +3538,14 @@ handle_control_add_onion(control_connection_t *conn,
    * the other arguments are malformed.
    */
   smartlist_t *port_cfgs = smartlist_new();
+  smartlist_t *auth_clients = NULL;
   int discard_pk = 0;
   int detach = 0;
+  rend_auth_type_t auth_type = REND_NO_AUTH;
   for (size_t i = 1; i < arg_len; i++) {
     static const char *port_prefix = "Port=";
     static const char *flags_prefix = "Flags=";
+    static const char *auth_prefix = "ClientAuth=";
 
     const char *arg = smartlist_get(args, i);
     if (!strcasecmpstart(arg, port_prefix)) {
@@ -3562,9 +3565,11 @@ handle_control_add_onion(control_connection_t *conn,
        *                   the response.
        *   * 'Detach' - Do not tie this onion service to any particular control
        *                connection.
+       *   * 'BasicAuth' - Client authorization using the 'basic' method.
        */
       static const char *discard_flag = "DiscardPK";
       static const char *detach_flag = "Detach";
+      static const char *basicauth_flag = "BasicAuth";
 
       smartlist_t *flags = smartlist_new();
       int bad = 0;
@@ -3581,6 +3586,8 @@ handle_control_add_onion(control_connection_t *conn,
           discard_pk = 1;
         } else if (!strcasecmp(flag, detach_flag)) {
           detach = 1;
+        } else if (!strcasecmp(flag, basicauth_flag)) {
+          auth_type = REND_BASIC_AUTH;
         } else {
           connection_printf_to_buf(conn,
                                    "512 Invalid 'Flags' argument: %s\r\n",
@@ -3593,6 +3600,37 @@ handle_control_add_onion(control_connection_t *conn,
       smartlist_free(flags);
       if (bad)
         goto out;
+    } else if (!strcasecmpstart(arg, auth_prefix)) {
+      char *err_msg = NULL;
+      rend_authorized_client_t *client =
+        add_onion_helper_clientauth(arg + strlen(auth_prefix),
+                                    auth_type, &err_msg);
+      if (!client) {
+        if (err_msg) {
+          connection_write_str_to_buf(err_msg, conn);
+          tor_free(err_msg);
+        }
+        goto out;
+      }
+
+      if (auth_clients != NULL) {
+        int bad = 0;
+        SMARTLIST_FOREACH_BEGIN(auth_clients, rend_authorized_client_t *, ac) {
+          if (strcmp(ac->client_name, client->client_name) == 0) {
+            bad = 1;
+            break;
+          }
+        } SMARTLIST_FOREACH_END(auth_clients);
+        if (bad) {
+          connection_printf_to_buf(conn,
+                                   "512 Duplicate name in ClientAuth\r\n");
+          rend_authorized_client_free(client);
+          goto out;
+        }
+      } else {
+        auth_clients = smartlist_new();
+      }
+      smartlist_add(auth_clients, client);
     } else {
       connection_printf_to_buf(conn, "513 Invalid argument\r\n");
       goto out;
@@ -3600,6 +3638,18 @@ handle_control_add_onion(control_connection_t *conn,
   }
   if (smartlist_len(port_cfgs) == 0) {
     connection_printf_to_buf(conn, "512 Missing 'Port' argument\r\n");
+    goto out;
+  } else if (auth_type == REND_NO_AUTH && auth_clients != NULL) {
+    connection_printf_to_buf(conn, "512 No auth type specified\r\n");
+    goto out;
+  } else if (auth_type != REND_NO_AUTH && auth_clients == NULL) {
+    connection_printf_to_buf(conn, "512 No auth clients specified\r\n");
+    goto out;
+  } else if ((auth_type == REND_BASIC_AUTH &&
+              smartlist_len(auth_clients) > 512) ||
+             (auth_type == REND_STEALTH_AUTH &&
+              smartlist_len(auth_clients) > 16)) {
+    connection_printf_to_buf(conn, "512 Too many auth clients\r\n");
     goto out;
   }
 
@@ -3627,9 +3677,10 @@ handle_control_add_onion(control_connection_t *conn,
    * regardless of success/failure.
    */
   char *service_id = NULL;
-  int ret = rend_service_add_ephemeral(pk, port_cfgs, REND_NO_AUTH,
-                                       NULL, &service_id);
+  int ret = rend_service_add_ephemeral(pk, port_cfgs, auth_type,
+                                       auth_clients, &service_id);
   port_cfgs = NULL; /* port_cfgs is now owned by the rendservice code. */
+  auth_clients = NULL; /* so is auth_clients */
   switch (ret) {
   case RSAE_OKAY:
   {
@@ -3674,6 +3725,9 @@ handle_control_add_onion(control_connection_t *conn,
   case RSAE_BADVIRTPORT:
     connection_printf_to_buf(conn, "512 Invalid VIRTPORT/TARGET\r\n");
     break;
+  case RSAE_BADAUTH:
+    connection_printf_to_buf(conn, "512 Invalid client authorization\r\n");
+    break;
   case RSAE_INTERNAL: /* FALLSTHROUGH */
   default:
     connection_printf_to_buf(conn, "551 Failed to add Onion Service\r\n");
@@ -3688,6 +3742,12 @@ handle_control_add_onion(control_connection_t *conn,
     SMARTLIST_FOREACH(port_cfgs, rend_service_port_config_t*, p,
                       rend_service_port_config_free(p));
     smartlist_free(port_cfgs);
+  }
+
+  if (auth_clients) {
+    SMARTLIST_FOREACH(auth_clients, rend_authorized_client_t *, ac,
+                      rend_authorized_client_free(ac));
+    smartlist_free(auth_clients);
   }
 
   SMARTLIST_FOREACH(args, char *, cp, {
@@ -3796,6 +3856,65 @@ add_onion_helper_keyarg(const char *arg, int discard_pk,
   *key_new_blob_out = key_new_blob;
 
   return pk;
+}
+
+/** Helper function to handle parsing a ClientAuth argument to the
+ * ADD_ONION command.  Return a new rend_authorized_client_t, or NULL
+ * and an optional control protocol error message on failure.  The
+ * caller is responsible for freeing the returned auth_client and err_msg.
+ */
+STATIC rend_authorized_client_t *
+add_onion_helper_clientauth(const char *arg, rend_auth_type_t auth_type,
+                            char **err_msg_out)
+{
+  char *err_msg = NULL;
+  int ok = 0;
+  smartlist_t *auth_args = smartlist_new();
+  rend_authorized_client_t *client =
+    tor_malloc_zero(sizeof(rend_authorized_client_t));
+  smartlist_split_string(auth_args, arg, ":", SPLIT_IGNORE_BLANK, 0);
+
+  if (smartlist_len(auth_args) < 1 || smartlist_len(auth_args) > 2) {
+    err_msg = tor_strdup("512 Invalid ClientAuth syntax\r\n");
+    goto err;
+  }
+  client->client_name = tor_strdup(smartlist_get(auth_args, 0));
+  if (smartlist_len(auth_args) == 2) {
+    rend_auth_type_t decoded_auth_type = REND_NO_AUTH;
+    char *decode_err_msg = NULL;
+    if (rend_auth_decode_cookie(smartlist_get(auth_args, 1),
+                                client->descriptor_cookie,
+                                &decoded_auth_type, &decode_err_msg) < 0) {
+      tor_assert(decode_err_msg);
+      tor_asprintf(&err_msg, "512 %s\r\n", decode_err_msg);
+      tor_free(decode_err_msg);
+      goto err;
+    }
+  } else {
+    crypto_rand(client->descriptor_cookie, REND_DESC_COOKIE_LEN);
+  }
+
+  int len = strlen(client->client_name);
+  if (len < 1 || len > 19 ||
+      strspn(client->client_name, REND_LEGAL_CLIENTNAME_CHARACTERS) != len) {
+    err_msg = tor_strdup("512 Invalid name in ClientAuth\r\n");
+    goto err;
+  }
+
+  ok = 1;
+ err:
+  SMARTLIST_FOREACH(auth_args, char *, arg, tor_free(arg));
+  smartlist_free(auth_args);
+  if (!ok) {
+    rend_authorized_client_free(client);
+    client = NULL;
+  }
+  if (err_msg_out) {
+    *err_msg_out = err_msg;
+  } else {
+    tor_free(err_msg);
+  }
+  return client;
 }
 
 /** Called when we get a DEL_ONION command; parse the body, and remove
@@ -5940,7 +6059,7 @@ get_desc_id_from_query(const rend_data_t *rend_data, const char *hsdir_fp)
     } SMARTLIST_FOREACH_END(fingerprint);
   }
 
-end:
+ end:
   return desc_id;
 }
 
