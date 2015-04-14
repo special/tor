@@ -1513,3 +1513,70 @@ rend_data_client_create(const char *onion_address, const char *desc_id,
   return NULL;
 }
 
+/** Decode a base64-encoded client authorization descriptor cookie.
+ * The descriptor_cookie can be truncated to REND_DESC_COOKIE_LEN_BASE64
+ * characters (as given to clients), or may include the two padding
+ * characters (as stored by the service).
+ *
+ * The result is stored in REND_DESC_COOKIE_LEN bytes of cookie_out.
+ * The rend_auth_type_t decoded from the cookie is stored in the
+ * optional auth_type_out parameter.
+ *
+ * Return 0 on success, or -1 on error.  The caller is responsible for
+ * freeing the returned err_msg.
+ */
+int
+rend_auth_decode_cookie(const char *cookie_in, char *cookie_out,
+                        rend_auth_type_t *auth_type_out, char **err_msg_out)
+{
+  char descriptor_cookie_tmp[REND_DESC_COOKIE_LEN+2];
+  char descriptor_cookie_base64ext[REND_DESC_COOKIE_LEN_BASE64+2+1];
+  const char *descriptor_cookie = cookie_in;
+  char *err_msg = NULL;
+  int auth_type_val = 0;
+  int res = -1;
+
+  int len = strlen(descriptor_cookie);
+  if (len == REND_DESC_COOKIE_LEN_BASE64) {
+    /* Add trailing zero bytes (AA) to make base64-decoding happy. */
+    tor_snprintf(descriptor_cookie_base64ext,
+                 REND_DESC_COOKIE_LEN_BASE64+2+1,
+                 "%sAA", descriptor_cookie);
+    descriptor_cookie = descriptor_cookie_base64ext;
+  } else if (len != REND_DESC_COOKIE_LEN_BASE64+2) {
+    tor_asprintf(&err_msg, "Authorization cookie has wrong length: %s",
+                 escaped(cookie_in));
+    goto err;
+  }
+
+  memset(descriptor_cookie_tmp, 0, sizeof(descriptor_cookie_tmp));
+  if (base64_decode(descriptor_cookie_tmp, sizeof(descriptor_cookie_tmp),
+                    descriptor_cookie, REND_DESC_COOKIE_LEN_BASE64+2) < 0) {
+    tor_asprintf(&err_msg, "Authorization cookie has invalid characters: %s",
+                 escaped(cookie_in));
+    goto err;
+  }
+
+  if (auth_type_out) {
+    auth_type_val = (((uint8_t)descriptor_cookie_tmp[16]) >> 4) + 1;
+    if (auth_type_val < 1 || auth_type_val > 2) {
+      tor_asprintf(&err_msg, "Authorization cookie type is unknown: %s",
+                   escaped(cookie_in));
+      goto err;
+    }
+    *auth_type_out = auth_type_val == 1 ? REND_BASIC_AUTH : REND_STEALTH_AUTH;
+  }
+
+  memcpy(cookie_out, descriptor_cookie_tmp, REND_DESC_COOKIE_LEN);
+  res = 0;
+ err:
+  if (err_msg_out) {
+    *err_msg_out = err_msg;
+  } else {
+    tor_free(err_msg);
+  }
+  memwipe(descriptor_cookie_tmp, 0, sizeof(descriptor_cookie_tmp));
+  memwipe(descriptor_cookie_base64ext, 0, sizeof(descriptor_cookie_base64ext));
+  return res;
+}
+
