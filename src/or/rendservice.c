@@ -182,7 +182,7 @@ rend_service_describe_for_log(rend_service_t *service)
 }
 
 /** Helper: free storage held by a single service authorized client entry. */
-static void
+void
 rend_authorized_client_free(rend_authorized_client_t *client)
 {
   if (!client)
