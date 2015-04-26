@@ -1536,17 +1536,6 @@ connection_ap_handshake_rewrite_and_attach(entry_connection_t *conn,
      * a stable circuit yet, but we know we'll need *something*. */
     rep_hist_note_used_internal(now, 0, 1);
 
-    /* Now we have a descriptor but is it usable or not? If not, refetch.
-     * Also, a fetch could have been requested if the onion address was not
-     * found in the cache previously. */
-    if (refetch_desc || !rend_client_any_intro_points_usable(entry)) {
-      base_conn->state = AP_CONN_STATE_RENDDESC_WAIT;
-      log_info(LD_REND, "Unknown descriptor %s. Fetching.",
-          safe_str_client(rend_data->onion_address));
-      rend_client_refetch_v2_renddesc(rend_data);
-      return 0;
-    }
-
     /* Look up if we have client authorization configured for this hidden
      * service.  If we do, associate it with the rend_data. */
     rend_service_authorization_t *client_auth =
@@ -1558,6 +1547,17 @@ connection_ap_handshake_rewrite_and_attach(entry_connection_t *conn,
       memcpy(rend_data->descriptor_cookie,
              client_auth->descriptor_cookie, REND_DESC_COOKIE_LEN);
       rend_data->auth_type = client_auth->auth_type;
+    }
+
+    /* Now we have a descriptor but is it usable or not? If not, refetch.
+     * Also, a fetch could have been requested if the onion address was not
+     * found in the cache previously. */
+    if (refetch_desc || !rend_client_any_intro_points_usable(entry)) {
+      base_conn->state = AP_CONN_STATE_RENDDESC_WAIT;
+      log_info(LD_REND, "Unknown descriptor %s. Fetching.",
+          safe_str_client(rend_data->onion_address));
+      rend_client_refetch_v2_renddesc(rend_data);
+      return 0;
     }
 
     /* We have the descriptor so launch a connection to the HS. */
