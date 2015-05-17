@@ -3539,6 +3539,7 @@ handle_control_add_onion(control_connection_t *conn,
    */
   smartlist_t *port_cfgs = smartlist_new();
   smartlist_t *auth_clients = NULL;
+  smartlist_t *auth_created_clients = NULL;
   int discard_pk = 0;
   int detach = 0;
   rend_auth_type_t auth_type = REND_NO_AUTH;
@@ -3602,9 +3603,11 @@ handle_control_add_onion(control_connection_t *conn,
         goto out;
     } else if (!strcasecmpstart(arg, auth_prefix)) {
       char *err_msg = NULL;
+      int created = 0;
       rend_authorized_client_t *client =
         add_onion_helper_clientauth(arg + strlen(auth_prefix),
-                                    auth_type, &err_msg);
+                                    auth_type, &created,
+                                    &err_msg);
       if (!client) {
         if (err_msg) {
           connection_write_str_to_buf(err_msg, conn);
@@ -3631,6 +3634,9 @@ handle_control_add_onion(control_connection_t *conn,
         auth_clients = smartlist_new();
       }
       smartlist_add(auth_clients, client);
+      if (created) {
+        smartlist_add(auth_created_clients, client);
+      }
     } else {
       connection_printf_to_buf(conn, "513 Invalid argument\r\n");
       goto out;
@@ -3684,23 +3690,6 @@ handle_control_add_onion(control_connection_t *conn,
   switch (ret) {
   case RSAE_OKAY:
   {
-    char *buf = NULL;
-    tor_assert(service_id);
-    if (key_new_alg) {
-      tor_assert(key_new_blob);
-      tor_asprintf(&buf,
-                   "250-ServiceID=%s\r\n"
-                   "250-PrivateKey=%s:%s\r\n"
-                   "250 OK\r\n",
-                   service_id,
-                   key_new_alg,
-                   key_new_blob);
-    } else {
-      tor_asprintf(&buf,
-                   "250-ServiceID=%s\r\n"
-                   "250 OK\r\n",
-                   service_id);
-    }
     if (detach) {
       if (!detached_onion_services)
         detached_onion_services = smartlist_new();
@@ -3711,9 +3700,28 @@ handle_control_add_onion(control_connection_t *conn,
       smartlist_add(conn->ephemeral_onion_services, service_id);
     }
 
-    connection_write_str_to_buf(buf, conn);
-    memwipe(buf, 0, strlen(buf));
-    tor_free(buf);
+    tor_assert(service_id);
+    connection_printf_to_buf(conn, "250-ServiceID=%s\r\n", service_id);
+    if (key_new_alg) {
+      tor_assert(key_new_blob);
+      connection_printf_to_buf(conn, "250-PrivateKey=%s:%s\r\n",
+                               key_new_alg, key_new_blob);
+    }
+    if (auth_created_clients) {
+      SMARTLIST_FOREACH(auth_created_clients, rend_authorized_client_t *, ac, {
+        char *encoded = rend_auth_encode_cookie(ac->descriptor_cookie,
+                                                auth_type);
+        if (!encoded) {
+          // XXX help
+        }
+        connection_printf_to_buf(conn, "250-ClientAuth=%s:%s\r\n",
+                                 ac->client_name, encoded);
+        memwipe(encoded, 0, strlen(encoded));
+        tor_free(encoded);
+      });
+    }
+
+    connection_printf_to_buf(conn, "250 OK\r\n");
     break;
   }
   case RSAE_BADPRIVKEY:
@@ -3748,6 +3756,10 @@ handle_control_add_onion(control_connection_t *conn,
     SMARTLIST_FOREACH(auth_clients, rend_authorized_client_t *, ac,
                       rend_authorized_client_free(ac));
     smartlist_free(auth_clients);
+  }
+  if (auth_created_clients) {
+    // Do not free entries; they are the same as auth_clients
+    smartlist_free(auth_created_clients);
   }
 
   SMARTLIST_FOREACH(args, char *, cp, {
@@ -3862,10 +3874,13 @@ add_onion_helper_keyarg(const char *arg, int discard_pk,
  * ADD_ONION command.  Return a new rend_authorized_client_t, or NULL
  * and an optional control protocol error message on failure.  The
  * caller is responsible for freeing the returned auth_client and err_msg.
+ *
+ * If 'created' is specified, it will be set to 1 when a new cookie has
+ * been generated.
  */
 STATIC rend_authorized_client_t *
 add_onion_helper_clientauth(const char *arg, rend_auth_type_t auth_type,
-                            char **err_msg_out)
+                            int *created, char **err_msg_out)
 {
   char *err_msg = NULL;
   int ok = 0;
@@ -3892,6 +3907,9 @@ add_onion_helper_clientauth(const char *arg, rend_auth_type_t auth_type,
     }
   } else {
     crypto_rand(client->descriptor_cookie, REND_DESC_COOKIE_LEN);
+    if (created) {
+      *created = 1;
+    }
   }
 
   int len = strlen(client->client_name);
