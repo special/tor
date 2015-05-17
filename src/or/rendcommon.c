@@ -1513,6 +1513,38 @@ rend_data_client_create(const char *onion_address, const char *desc_id,
   return NULL;
 }
 
+/** Encode a client authorization descriptor cookie.
+ * The result of this function is suitable for use in the HidServAuth
+ * option.  The trailing padding characters are removed, and the
+ * auth type is encoded into the cookie.
+ *
+ * Returns a new base64-encoded cookie on success, or NULL on failure.
+ * The caller is responsible for freeing the returned value.
+ */
+// XXX If old tor can read this format out of client_keys, we should switch.
+char *
+rend_auth_encode_cookie(const char *cookie_in, rend_auth_type_t auth_type)
+{
+  char extended_cookie[REND_DESC_COOKIE_LEN+1];
+  char *cookie_out = tor_malloc_zero(REND_DESC_COOKIE_LEN_BASE64+2+1);
+
+  memcpy(extended_cookie, cookie_in, REND_DESC_COOKIE_LEN);
+  extended_cookie[REND_DESC_COOKIE_LEN] = ((int)auth_type - 1) << 4;
+  if (base64_encode(cookie_out, REND_DESC_COOKIE_LEN_BASE64+2+1,
+                    extended_cookie, REND_DESC_COOKIE_LEN+1, 0) < 0) {
+    tor_free(cookie_out);
+    cookie_out = NULL;
+    goto done;
+  }
+
+  /* Remove padding */
+  cookie_out[strlen(cookie_out)-2] = '\0';
+
+ done:
+  memwipe(extended_cookie, 0, sizeof(extended_cookie));
+  return cookie_out;
+}
+
 /** Decode a base64-encoded client authorization descriptor cookie.
  * The descriptor_cookie can be truncated to REND_DESC_COOKIE_LEN_BASE64
  * characters (as given to clients), or may include the two padding
