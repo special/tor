@@ -14,6 +14,72 @@
 #include "or.h"
 #include "ed25519_cert.h" /* Trunnel interface. */
 
+static void
+hs_desc_plaintext_data_free_contents(hs_desc_plaintext_data_t *desc)
+{
+  if (!desc)
+    return;
+
+  if (desc->signing_key_cert)
+    tor_cert_free(desc->signing_key_cert);
+
+  memwipe(desc, 0, sizeof(*desc));
+}
+
+static void
+hs_desc_encrypted_data_free_contents(hs_desc_encrypted_data_t *desc)
+{
+  if (!desc)
+    return;
+
+  if (desc->auth_types) {
+    SMARTLIST_FOREACH(desc->auth_types, char *, a, tor_free(a));
+    smartlist_free(desc->auth_types);
+  }
+
+  if (desc->intro_points) {
+    SMARTLIST_FOREACH_BEGIN(desc->intro_points,
+                            hs_desc_intro_point_t *, ip) {
+      if (ip->link_specifiers) {
+        SMARTLIST_FOREACH(ip->link_specifiers, hs_desc_link_specifier_t *, ls,
+                          tor_free(ls));
+        smartlist_free(ip->link_specifiers);
+      }
+      tor_cert_free(ip->auth_key_cert);
+      crypto_pk_free(ip->enc_key_legacy);
+      tor_free(ip);
+    } SMARTLIST_FOREACH_END(ip);
+    smartlist_free(desc->intro_points);
+  }
+
+  memwipe(desc, 0, sizeof(*desc));
+}
+
+void
+hs_desc_plaintext_data_free(hs_desc_plaintext_data_t *desc)
+{
+  hs_desc_plaintext_data_free_contents(desc);
+  tor_free(desc);
+}
+
+void
+hs_desc_encrypted_data_free(hs_desc_encrypted_data_t *desc)
+{
+  hs_desc_encrypted_data_free_contents(desc);
+  tor_free(desc);
+}
+
+void
+hs_descriptor_free(hs_descriptor_t *desc)
+{
+  if (!desc)
+    return;
+
+  hs_desc_plaintext_data_free_contents(&desc->plaintext_data);
+  hs_desc_encrypted_data_free_contents(&desc->encrypted_data);
+  tor_free(desc);
+}
+
 /* Constant string value used for the descriptor format. */
 static const char *str_hs_desc = "hs-descriptor";
 static const char *str_desc_cert = "descriptor-signing-key-cert";

@@ -95,21 +95,6 @@ helper_build_hs_desc(void)
   return descp;
 }
 
-static void
-helper_free_hs_desc(hs_descriptor_t *desc)
-{
-  tor_cert_free(desc->plaintext_data.signing_key_cert);
-  SMARTLIST_FOREACH(desc->encrypted_data.auth_types,
-                    char *, s, tor_free(s));
-  SMARTLIST_FOREACH_BEGIN(desc->encrypted_data.intro_points,
-                          hs_desc_intro_point_t *, ip) {
-    tor_cert_free(ip->auth_key_cert);
-    tor_free(ip);
-  } SMARTLIST_FOREACH_END(ip);
-  smartlist_free(desc->encrypted_data.auth_types);
-  smartlist_free(desc->encrypted_data.intro_points);
-}
-
 /* Test certificate encoding put in a descriptor. */
 static void
 test_cert_encoding(void *arg)
@@ -274,7 +259,7 @@ test_encode_descriptor(void *arg)
   tt_assert(encoded);
 
  done:
-  helper_free_hs_desc(desc);
+  hs_descriptor_free(desc);
   tor_free(encoded);
 }
 

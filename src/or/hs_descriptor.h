@@ -127,6 +127,10 @@ typedef struct hs_descriptor_t {
 
 /* Public API. */
 
+void hs_descriptor_free(hs_descriptor_t *desc);
+void hs_desc_plaintext_data_free(hs_desc_plaintext_data_t *desc);
+void hs_desc_encrypted_data_free(hs_desc_encrypted_data_t *desc);
+
 int hs_desc_encode_descriptor(const hs_descriptor_t *desc,
                               char **encoded_out);
 
