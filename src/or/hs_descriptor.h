@@ -37,6 +37,8 @@
 #define HS_DESC_ENCRYPTED_PADDING_PLAINTEXT_MULTIPLE 128
 /* Once padded, this is the maximum length in bytes for the plaintext. */
 #define HS_DESC_ENCRYPTED_PADDED_PLAINTEXT_MAX_LEN 8192
+/* Maximum length in bytes of a full hidden service descriptor. */
+#define HS_DESC_MAX_LEN 32768 // XXX justify
 
 /* Link specifier object that contains information on how to extend to the
  * relay that is the address, port and handshake type. */
@@ -133,6 +135,13 @@ void hs_desc_encrypted_data_free(hs_desc_encrypted_data_t *desc);
 
 int hs_desc_encode_descriptor(const hs_descriptor_t *desc,
                               char **encoded_out);
+
+int hs_desc_decode(const char *encoded, const uint8_t *subcredential,
+                   hs_descriptor_t **desc_out);
+int hs_desc_decode_plaintext(const char *encoded,
+                             hs_desc_plaintext_data_t *desc_out);
+int hs_desc_decode_encrypted(const hs_descriptor_t *desc,
+                             hs_desc_encrypted_data_t *desc_out);
 
 #ifdef HS_DESCRIPTOR_PRIVATE
 

@@ -263,12 +263,39 @@ test_encode_descriptor(void *arg)
   tor_free(encoded);
 }
 
+static void
+test_decode_plaintext(void *arg)
+{
+  int ret;
+  char *encoded = NULL;
+  hs_descriptor_t *desc = helper_build_hs_desc();
+  hs_desc_plaintext_data_t desc_decoded;
+  memwipe(&desc_decoded, 0, sizeof(desc_decoded));
+
+  (void) arg;
+
+  ret = hs_desc_encode_descriptor(desc, &encoded);
+  tt_int_op(ret, ==, 0);
+  tt_assert(encoded);
+
+  ret = hs_desc_decode_plaintext(encoded, &desc_decoded);
+  tt_int_op(ret, ==, 0);
+
+  // XXX compare
+ done:
+  // XXX leaking desc_decoded contents
+  hs_descriptor_free(desc);
+  tor_free(encoded);
+}
+
 struct testcase_t hs_descriptor[] = {
   { "cert_encoding", test_cert_encoding, TT_FORK,
     NULL, NULL },
   { "link_specifier", test_link_specifier, TT_FORK,
     NULL, NULL },
   { "encode_descriptor", test_encode_descriptor, TT_FORK,
+    NULL, NULL },
+  { "decode_plaintext", test_decode_plaintext, TT_FORK,
     NULL, NULL },
 
   END_OF_TESTCASES

@@ -13,6 +13,7 @@
 
 #include "or.h"
 #include "ed25519_cert.h" /* Trunnel interface. */
+#include "parsecommon.h"
 
 static void
 hs_desc_plaintext_data_free_contents(hs_desc_plaintext_data_t *desc)
@@ -665,4 +666,181 @@ int hs_desc_encode_descriptor(const hs_descriptor_t *desc,
   SMARTLIST_FOREACH(lines, char *, l, tor_free(l));
   smartlist_free(lines);
   return ret;
+}
+
+static token_rule_t hs_desc_token_table[] = {
+  T1_START("hs-descriptor", R3_HS_DESCRIPTOR, EQ(1), NO_OBJ),
+  T1("descriptor-signing-key-cert", R3_DESC_SIGNING_CERT, EQ(1), NEED_OBJ),
+  T1("revision-counter", R3_REVISION_COUNTER, EQ(1), NO_OBJ),
+  T1("encrypted", R3_ENCRYPTED, NO_ARGS, NEED_OBJ),
+  T1_END("signature", R3_SIGNATURE, EQ(1), NO_OBJ),
+  END_OF_TABLE
+};
+
+/* Fully decode the given descriptor plaintext and on success provide
+ * a pointer to a filled-in hs_descriptor_t in desc_out.
+ *
+ * Returns 0 and a newly allocated hs_descriptor_t as desc_out on success.
+ * On error, XXX we need an enum of error cases.
+ */
+int
+hs_desc_decode_plaintext(const char *encoded,
+                         hs_desc_plaintext_data_t *desc)
+{
+  memarea_t *area = memarea_new();
+  smartlist_t *tokens = smartlist_new();
+  size_t encoded_len;
+  directory_token_t *tok;
+  int ok = 0, result = -1;
+
+  tor_assert(encoded);
+  tor_assert(desc);
+
+  encoded_len = strlen(encoded);
+  if (encoded_len >= HS_DESC_MAX_LEN) {
+    log_warn(LD_REND, "Service descriptor is too big (%lu bytes)",
+             encoded_len);
+    goto err;
+  }
+
+  /* XXX are unknown lines allowed by this? does that matter? */
+  if (tokenize_string(area, encoded, encoded + encoded_len,
+                      tokens, hs_desc_token_table, 0) < 0) {
+    log_warn(LD_REND, "Service descriptor is not parseable");
+    goto err;
+  }
+
+  if (smartlist_len(tokens) < 5) {
+    log_warn(LD_REND, "Service descriptor is missing required fields");
+    goto err;
+  }
+
+  /* "hs-descriptor" SP version-number NL */
+  tok = find_by_keyword(tokens, R3_HS_DESCRIPTOR);
+  tor_assert(tok == smartlist_get(tokens, 0));
+  tor_assert(tok->n_args == 1);
+  if (strcmp(tok->args[0], "3") != 0) {
+    log_warn(LD_REND, "Service descriptor has unknown version %s",
+             escaped(tok->args[0]));
+    goto err;
+  }
+  desc->version = 3;
+
+  /* "descriptor-signing-key-cert" SP certificate NL */
+  tok = find_by_keyword(tokens, R3_DESC_SIGNING_CERT);
+  tor_assert(tok->n_args == 1);
+  tor_assert(tok->object_body);
+
+  /* Expecting a prop220 cert with the signing key extension, which contains
+   * the blinded public key.
+   *
+   * XXX: This format is based on the encoder, not on the spec. This
+   * needs to be resolved. */
+  if (strcmp(tok->args[0], "identity-ed25519") != 0 ||
+      strcmp(tok->object_type, "ED25519 CERT") != 0) {
+    log_warn(LD_REND, "Service descriptor doesn't contain a certificate");
+    goto err;
+  }
+  desc->signing_key_cert = tor_cert_parse((const uint8_t*)tok->object_body,
+                                          tok->object_size);
+  if (!desc->signing_key_cert) {
+    log_warn(LD_REND, "Service descriptor has an unparseable certificate");
+    goto err;
+  } else if (desc->signing_key_cert->cert_type != CERT_TYPE_HS_DESC_SIGN) {
+    log_warn(LD_REND, "Invalid cert type %02x for introduction point auth "
+                      "cert", desc->signing_key_cert->cert_type);
+    goto err;
+  } else if (!desc->signing_key_cert->signing_key_included) {
+    log_warn(LD_REND, "Service descriptor certificate lacks a signing key");
+    goto err;
+    /* XXX not checking expiration; does that matter? */
+  } else if (tor_cert_checksig(desc->signing_key_cert,
+                               &desc->signing_key_cert->signing_key, 0)) {
+    log_warn(LD_REND, "Service descriptor certificate signature is invalid");
+    goto err;
+  }
+
+  /* Copy the public keys into signing_kp and blinded_kp */
+  memcpy(&desc->signing_kp.pubkey, &desc->signing_key_cert->signed_key,
+         sizeof(ed25519_public_key_t));
+  memcpy(&desc->blinded_kp.pubkey, &desc->signing_key_cert->signing_key,
+         sizeof(ed25519_public_key_t));
+
+  /* "revision-counter" SP integer NL */
+  tok = find_by_keyword(tokens, R3_REVISION_COUNTER);
+  tor_assert(tok->n_args == 1);
+  desc->revision_counter = (uint32_t)tor_parse_ulong(tok->args[0], 10, 0,
+                                                     UINT32_MAX, &ok, NULL);
+  if (!ok) {
+    log_warn(LD_REND, "Service descriptor revision-counter is invalid");
+    goto err;
+  }
+
+  /* "encrypted" NL encrypted-string */
+  tok = find_by_keyword(tokens, R3_ENCRYPTED);
+  tor_assert(tok->object_body);
+  if (strcmp(tok->object_type, "MESSAGE") != 0) {
+    log_warn(LD_REND, "Service descriptor does not contain a valid message");
+    goto err;
+  }
+
+  /* XXX check size min/max */
+
+  /* "signature" SP signature NL */
+  {
+    ed25519_signature_t sig;
+    const char *sig_start, *sig_end;
+
+    tok = find_by_keyword(tokens, R3_SIGNATURE);
+    tor_assert(tok->n_args == 1);
+    if (ed25519_signature_from_base64(&sig, tok->args[0]) != 0) {
+      log_warn(LD_REND, "Service descriptor does not contain a valid "
+                        "signature");
+      goto err;
+    }
+
+    sig_start = tor_memstr(encoded, encoded_len, "\nsignature ");
+    if (!sig_start) {
+      log_warn(LD_REND, "Service descriptor does not contain a valid "
+                        "signature");
+      goto err;
+    }
+    sig_start++;
+
+    /* Next newline after the signature must be the end of the descriptor */
+    sig_end = memchr(sig_start, '\n', encoded_len - (sig_start - encoded));
+    if (sig_end != (encoded + encoded_len - 1)) {
+      log_warn(LD_REND, "Trailing data after signature in service descriptor");
+      goto err;
+    }
+
+    tor_assert(desc->signing_key_cert);
+    if (ed25519_checksig(&sig, (const uint8_t *) encoded, sig_start - encoded,
+                         &desc->signing_key_cert->signed_key) != 0) {
+      log_warn(LD_REND, "Invalid signature on service descriptor");
+      goto err;
+    }
+  }
+
+  /* other checks? size, size of encrypted, ???
+   * blinded key stuff?
+   * XXX should we allow unrecognized lines in the outer descriptor?
+   * think about forwards compatibility here */
+
+  result = 0;
+  goto done;
+
+ err:
+  tor_assert(result < 0);
+  hs_desc_plaintext_data_free_contents(desc);
+
+ done:
+  if (tokens) {
+    SMARTLIST_FOREACH(tokens, directory_token_t *, t, token_clear(t));
+    smartlist_free(tokens);
+  }
+  if (area)
+    memarea_drop_all(area);
+
+  return result;
 }
