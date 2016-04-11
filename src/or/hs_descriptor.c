@@ -23,6 +23,8 @@ hs_desc_plaintext_data_free_contents(hs_desc_plaintext_data_t *desc)
 
   if (desc->signing_key_cert)
     tor_cert_free(desc->signing_key_cert);
+  if (desc->encrypted_blob)
+    tor_free(desc->encrypted_blob);
 
   memwipe(desc, 0, sizeof(*desc));
 }
@@ -785,6 +787,8 @@ hs_desc_decode_plaintext(const char *encoded,
   }
 
   /* XXX check size min/max */
+  desc->encrypted_blob = tor_memdup(tok->object_body, tok->object_size);
+  desc->encrypted_blob_size = tok->object_size;
 
   /* "signature" SP signature NL */
   {

@@ -110,6 +110,12 @@ typedef struct hs_desc_plaintext_data_t {
    * the descriptor has changed. This avoids leaking whether the descriptor
    * has changed. Spec specifies this as a 4 bytes positive integer. */
   uint32_t revision_counter;
+
+  /* The base64-decoded encrypted blob from the descriptor */
+  uint8_t *encrypted_blob;
+
+  /* Size of the encrypted_blob */
+  size_t encrypted_blob_size;
 } hs_desc_plaintext_data_t;
 
 /* Service descriptor in its decoded form. */
