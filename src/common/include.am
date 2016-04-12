@@ -27,12 +27,14 @@ src_common_libcurve25519_donna_a_CFLAGS=
 if BUILD_CURVE25519_DONNA
 src_common_libcurve25519_donna_a_SOURCES=\
 	src/ext/curve25519_donna/curve25519-donna.c
+# See bug 13538 -- this code is known to have signed overflow issues.
 src_common_libcurve25519_donna_a_CFLAGS+=\
-	@F_OMIT_FRAME_POINTER@
+	@F_OMIT_FRAME_POINTER@ @CFLAGS_FWRAPV@
 noinst_LIBRARIES+=src/common/libcurve25519_donna.a
 LIBDONNA=src/common/libcurve25519_donna.a
 else
 if BUILD_CURVE25519_DONNA_C64
+src_common_libcurve25519_donna_a_CFLAGS+=@CFLAGS_FTRAPV@
 src_common_libcurve25519_donna_a_SOURCES=\
 	src/ext/curve25519_donna/curve25519-donna-c64.c
 noinst_LIBRARIES+=src/common/libcurve25519_donna.a
