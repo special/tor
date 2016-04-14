@@ -26,15 +26,15 @@
 
 /* Length of the salt needed for the encrypted section of a descriptor. */
 #define HS_DESC_ENCRYPTED_SALT_LEN 16
-/* Length of the secret input needed for the HKDF construction which derives
+/* Length of the secret input needed for the KDF construction which derives
  * the encryption key for the encrypted data section of the descriptor. This
  * adds up to 68 bytes being the blinded key, hashed subcredential and
  * revision counter. */
 #define HS_DESC_ENCRYPTED_SECRET_INPUT_LEN \
   ED25519_PUBKEY_LEN + DIGEST256_LEN + sizeof(uint32_t)
-/* Length of the HKDF output value which is the length of the secret key,
+/* Length of the KDF output value which is the length of the secret key,
  * the secret IV and MAC key length which is the length of H() output. */
-#define HS_DESC_ENCRYPTED_HKDF_OUTPUT_LEN \
+#define HS_DESC_ENCRYPTED_KDF_OUTPUT_LEN \
   CIPHER_KEY_LEN + CIPHER_IV_LEN + DIGEST256_LEN
 /* We need to pad the plaintext version of the encrypted data section before
  * encryption and it has to be a multiple of this value. */

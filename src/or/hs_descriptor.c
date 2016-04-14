@@ -227,7 +227,7 @@ encode_intro_point(const hs_desc_intro_point_t *ip)
 }
 
 /* Using a given decriptor object, build the secret input needed for the
- * HKDF and put it in the dst pointer which is an already allocated buffer
+ * KDF and put it in the dst pointer which is an already allocated buffer
  * of size dstlen. */
 static void
 build_secret_input(const hs_descriptor_t *desc, uint8_t *dst, size_t dstlen)
@@ -253,12 +253,12 @@ build_secret_input(const hs_descriptor_t *desc, uint8_t *dst, size_t dstlen)
   tor_assert(offset <= dstlen);
 }
 
-/* Do the HKDF construction and put the resulting data in key_out which is
- * of key_out_len length. */
+/* Do the KDF construction and put the resulting data in key_out which is of
+ * key_out_len length. It uses SHAKE-256 as specified in the spec. */
 static void
-build_hkdf_key(const hs_descriptor_t *desc,
-               uint8_t *salt, size_t salt_len,
-               uint8_t *key_out, size_t key_out_len)
+build_kdf_key(const hs_descriptor_t *desc,
+              uint8_t *salt, size_t salt_len,
+              uint8_t *key_out, size_t key_out_len)
 {
   uint8_t secret_input[HS_DESC_ENCRYPTED_SECRET_INPUT_LEN];
   crypto_xof_t *xof;
@@ -267,16 +267,16 @@ build_hkdf_key(const hs_descriptor_t *desc,
   tor_assert(salt);
   tor_assert(key_out);
 
-  /* Get the secret input for the HKDF computation. */
+  /* Build the secret input for the KDF computation. */
   build_secret_input(desc, secret_input, sizeof(secret_input));
 
   xof = crypto_xof_new();
-  /* Feed our KDF. [SHAKE it like a polaroid  picture --Yawning]. */
+  /* Feed our KDF. [SHAKE it like a polaroid picture --Yawning]. */
   crypto_xof_add_bytes(xof, secret_input, sizeof(secret_input));
   crypto_xof_add_bytes(xof, salt, salt_len);
   crypto_xof_add_bytes(xof, (const uint8_t *) str_enc_hsdir_data,
                        strlen(str_enc_hsdir_data));
-  /* Eat from our HKDF. */
+  /* Eat from our KDF. */
   crypto_xof_squeeze_bytes(xof, key_out, key_out_len);
   crypto_xof_free(xof);
   memwipe(secret_input,  0, sizeof(secret_input));
@@ -367,12 +367,12 @@ encrypt_data(const hs_descriptor_t *desc, const char *plaintext,
   /* Get our salt. The returned bytes are already hashed. */
   crypto_strongest_rand(salt, sizeof(salt));
 
-  /* HKDF construction resulting in a key from which we'll extract what we
+  /* KDF construction resulting in a key from which we'll extract what we
    * need for the encryption. */
   {
-    uint8_t key[HS_DESC_ENCRYPTED_HKDF_OUTPUT_LEN];
+    uint8_t key[HS_DESC_ENCRYPTED_KDF_OUTPUT_LEN];
 
-    build_hkdf_key(desc, salt, sizeof(salt), key, sizeof(key));
+    build_kdf_key(desc, salt, sizeof(salt), key, sizeof(key));
     /* Copy the bytes we need for both the secret key and IV. */
     memcpy(secret_key, key, sizeof(secret_key));
     offset += sizeof(secret_key);
