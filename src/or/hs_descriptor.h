@@ -37,6 +37,10 @@
 #define HS_DESC_ENCRYPTED_PADDING_PLAINTEXT_MULTIPLE 128
 /* Once padded, this is the maximum length in bytes for the plaintext. */
 #define HS_DESC_ENCRYPTED_PADDED_PLAINTEXT_MAX_LEN 8192
+/* Minimum length in bytes of the encrypted portion of the descriptor. */
+#define HS_DESC_ENCRYPTED_MIN_LEN \
+  HS_DESC_ENCRYPTED_SALT_LEN + \
+  HS_DESC_ENCRYPTED_PADDING_PLAINTEXT_MULTIPLE + DIGEST256_LEN
 /* Maximum length in bytes of a full hidden service descriptor. */
 #define HS_DESC_MAX_LEN 32768 // XXX justify
 
@@ -153,6 +157,9 @@ int hs_desc_decode_encrypted(const hs_descriptor_t *desc,
 
 STATIC int encode_cert(const tor_cert_t *cert, char **cert_str_out);
 STATIC char *encode_link_specifiers(const smartlist_t *specs);
+STATIC smartlist_t *decode_link_specifiers(const char *encoded);
+STATIC hs_desc_intro_point_t *decode_introduction_point(const char *text,
+                                                        const char *end);
 
 #endif /* HS_DESCRIPTOR_PRIVATE */
 
