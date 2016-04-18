@@ -358,7 +358,7 @@ encrypt_data(const hs_descriptor_t *desc, const char *plaintext,
   uint8_t *encrypted;
   uint8_t salt[HS_DESC_ENCRYPTED_SALT_LEN];
   uint8_t secret_key[CIPHER_KEY_LEN], secret_iv[CIPHER_IV_LEN];
-  uint8_t mac_key[DIGEST256_LEN];
+  uint8_t mac_key[DIGEST256_LEN], mac[DIGEST256_LEN];
 
   tor_assert(desc);
   tor_assert(plaintext);
@@ -389,30 +389,41 @@ encrypt_data(const hs_descriptor_t *desc, const char *plaintext,
                                   strlen(plaintext), &encrypted);
   memwipe(secret_key, 0, sizeof(secret_key));
   memwipe(secret_iv, 0, sizeof(secret_iv));
-  /* This construction is specified in section 5. of proposal 224. */
+  /* This construction is specified in section 2.5 of proposal 224. */
   final_blob_len = sizeof(salt) + encrypted_len + DIGEST256_LEN;
   final_blob = tor_malloc_zero(final_blob_len);
 
-  /* First value is the MAC key. */
-  memcpy(final_blob, mac_key, sizeof(mac_key));
-  offset = sizeof(mac_key);
-  /* The salt is the second value. */
+  /* Build the MAC. */
+  {
+    crypto_digest_t *digest;
+
+    digest = crypto_digest256_new(DIGEST_SHA3_256);
+    /* As specified in section 2.5 of proposal 224, first add the mac key
+     * then add the salt first and then the encrypted section. */
+    crypto_digest_add_bytes(digest, (const char *) mac_key,
+                            sizeof(mac_key));
+    crypto_digest_add_bytes(digest, (const char *) salt, sizeof(salt));
+    crypto_digest_add_bytes(digest, (const char *) encrypted,
+                            encrypted_len);
+    crypto_digest_get_digest(digest, (char *) mac, sizeof(mac));
+    crypto_digest_free(digest);
+    memwipe(mac_key, 0, sizeof(mac_key));
+  }
+
+  /* The salt is the first value. */
   memcpy(final_blob + offset, salt, sizeof(salt));
-  offset += sizeof(salt);
-  /* Third value if the encrypted data. */
+  offset = sizeof(salt);
+  /* Second value is the encrypted data. */
   memcpy(final_blob + offset, encrypted, encrypted_len);
   offset += encrypted_len;
-  /* Cleanup the encrypted buffer and MAC key. */
-  memwipe(mac_key, 0, sizeof(mac_key));
+  /* Third value is the MAC. */
+  memcpy(final_blob + offset, mac, sizeof(mac));
+  offset += sizeof(mac);
+  /* Cleanup the buffers. */
+  memwipe(salt, 0, sizeof(salt));
   memwipe(encrypted, 0, encrypted_len);
   tor_free(encrypted);
-
-  /* Hash with SHA3 the two fields and put the value at the end of the final
-   * blob that is after the encrypted part being the third value. */
-  crypto_digest256(final_blob + offset, final_blob,
-                   final_blob_len - DIGEST256_LEN, DIGEST_SHA3_256);
   /* Extra precaution. */
-  offset += DIGEST256_LEN;
   tor_assert(offset == final_blob_len);
 
   *encrypted_out = final_blob;
