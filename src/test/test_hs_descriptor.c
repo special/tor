@@ -54,22 +54,21 @@ helper_build_hs_desc(void)
   time_t now = time(NULL);
   hs_descriptor_t *descp = NULL, *desc = tor_malloc_zero(sizeof(*desc));
 
-  desc->version = HS_DESC_SUPPORTED_FORMAT_VERSION;
-  ret = ed25519_keypair_generate(&desc->signing_kp, 0);
+  desc->plaintext_data.version = HS_DESC_SUPPORTED_FORMAT_VERSION;
+  ret = ed25519_keypair_generate(&desc->plaintext_data.signing_kp, 0);
   tt_int_op(ret, ==, 0);
-  ret = ed25519_keypair_generate(&desc->blinded_kp, 0);
+  ret = ed25519_keypair_generate(&desc->plaintext_data.blinded_kp, 0);
   tt_int_op(ret, ==, 0);
 
   /* XXX: Change cert type to the HS type 0x08. */
-  desc->signing_key_cert = tor_cert_create(&desc->blinded_kp,
-                                           CERT_TYPE_SIGNING_AUTH,
-                                           &desc->signing_kp.pubkey, now,
-                                           3600,
-                                           CERT_FLAG_INCLUDE_SIGNING_KEY);
-  tt_assert(desc->signing_key_cert);
-  desc->creation_time = now;
-  desc->revision_counter = 42;
-  desc->replica_num = 1;
+  desc->plaintext_data.signing_key_cert =
+    tor_cert_create(&desc->plaintext_data.blinded_kp,
+                    CERT_TYPE_SIGNING_AUTH,
+                    &desc->plaintext_data.signing_kp.pubkey, now,
+                    3600,
+                    CERT_FLAG_INCLUDE_SIGNING_KEY);
+  tt_assert(desc->plaintext_data.signing_key_cert);
+  desc->plaintext_data.revision_counter = 42;
 
   /* Setup encrypted data section. */
   desc->encrypted_data.create2_formats |= ONION_HANDSHAKE_TYPE_NTOR;
@@ -78,13 +77,13 @@ helper_build_hs_desc(void)
   desc->encrypted_data.intro_points = smartlist_new();
   /* Add three intro points. */
   smartlist_add(desc->encrypted_data.intro_points,
-                helper_build_intro_point(&desc->blinded_kp, now,
+                helper_build_intro_point(&desc->plaintext_data.blinded_kp, now,
                                          "1.2.3.4"));
   smartlist_add(desc->encrypted_data.intro_points,
-                helper_build_intro_point(&desc->blinded_kp, now,
+                helper_build_intro_point(&desc->plaintext_data.blinded_kp, now,
                                          "4.3.2.1"));
   smartlist_add(desc->encrypted_data.intro_points,
-                helper_build_intro_point(&desc->blinded_kp, now,
+                helper_build_intro_point(&desc->plaintext_data.blinded_kp, now,
                                          "3.2.1.4"));
 
   descp = desc;
@@ -95,7 +94,7 @@ helper_build_hs_desc(void)
 static void
 helper_free_hs_desc(hs_descriptor_t *desc)
 {
-  tor_cert_free(desc->signing_key_cert);
+  tor_cert_free(desc->plaintext_data.signing_key_cert);
   SMARTLIST_FOREACH(desc->encrypted_data.auth_types,
                     char *, s, tor_free(s));
   SMARTLIST_FOREACH_BEGIN(desc->encrypted_data.intro_points,
