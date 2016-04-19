@@ -23,9 +23,14 @@ helper_build_intro_point(const ed25519_keypair_t *blinded_kp, time_t now,
   ed25519_keypair_t auth_kp;
   hs_desc_intro_point_t *intro_point = NULL;
   hs_desc_intro_point_t *ip = tor_malloc_zero(sizeof(*ip));
+  ip->link_specifiers = smartlist_new();
 
-  tor_addr_parse(&ip->link_specifier.address, addr);
-  ip->link_specifier.port = 9001;
+  {
+    hs_desc_link_specifier_t *ls = tor_malloc_zero(sizeof(*ls));
+    tor_addr_parse(&ls->u.ap.addr, addr);
+    ls->u.ap.port = 9001;
+    smartlist_add(ip->link_specifiers, ls);
+  }
 
   ret = ed25519_keypair_generate(&auth_kp, 0);
   tt_int_op(ret, ==, 0);
@@ -223,11 +228,13 @@ test_link_specifier(void *arg)
 {
   ssize_t ret;
   hs_desc_link_specifier_t spec;
+  smartlist_t *link_specifiers = smartlist_new();
 
   (void) arg;
 
   /* Always this port. */
-  spec.port = 42;
+  spec.u.ap.port = 42;
+  smartlist_add(link_specifiers, &spec);
 
   /* Test IPv4 for starter. */
   {
@@ -235,21 +242,24 @@ test_link_specifier(void *arg)
     uint32_t ipv4;
     link_specifier_t *ls;
 
-    ret = tor_addr_parse(&spec.address, "1.2.3.4");
+    spec.type = LS_IPV4;
+    ret = tor_addr_parse(&spec.u.ap.addr, "1.2.3.4");
     tt_int_op(ret, ==, AF_INET);
-    b64 = encode_link_specifier(&spec);
+    b64 = encode_link_specifiers(link_specifiers);
     tt_assert(b64);
 
     /* Decode it and validate the format. */
     ret = base64_decode(buf, sizeof(buf), b64, strlen(b64));
     tt_int_op(ret, >, 0);
-    ret = link_specifier_parse(&ls, (uint8_t *) buf, ret);
+    /* First byte is the number of link specifier. */
+    tt_int_op(get_uint8(buf), ==, 1);
+    ret = link_specifier_parse(&ls, (uint8_t *) buf + 1, ret - 1);
     tt_int_op(ret, ==, 8);
     /* Should be 2 bytes for port and 4 bytes for IPv4. */
     tt_int_op(link_specifier_get_ls_len(ls), ==, 6);
     ipv4 = link_specifier_get_un_ipv4_addr(ls);
-    tt_int_op(tor_addr_to_ipv4n(&spec.address), ==, ipv4);
-    tt_int_op(link_specifier_get_un_ipv4_port(ls), ==, spec.port);
+    tt_int_op(tor_addr_to_ipv4n(&spec.u.ap.addr), ==, ipv4);
+    tt_int_op(link_specifier_get_un_ipv4_port(ls), ==, spec.u.ap.port);
 
     link_specifier_free(ls);
     tor_free(b64);
@@ -261,23 +271,26 @@ test_link_specifier(void *arg)
     uint8_t ipv6[16];
     link_specifier_t *ls;
 
-    ret = tor_addr_parse(&spec.address, "[1:2:3:4::]");
+    spec.type = LS_IPV6;
+    ret = tor_addr_parse(&spec.u.ap.addr, "[1:2:3:4::]");
     tt_int_op(ret, ==, AF_INET6);
-    b64 = encode_link_specifier(&spec);
+    b64 = encode_link_specifiers(link_specifiers);
     tt_assert(b64);
 
     /* Decode it and validate the format. */
     ret = base64_decode(buf, sizeof(buf), b64, strlen(b64));
     tt_int_op(ret, >, 0);
-    ret = link_specifier_parse(&ls, (uint8_t *) buf, ret);
+    /* First byte is the number of link specifier. */
+    tt_int_op(get_uint8(buf), ==, 1);
+    ret = link_specifier_parse(&ls, (uint8_t *) buf + 1, ret - 1);
     tt_int_op(ret, ==, 20);
     /* Should be 2 bytes for port and 16 bytes for IPv6. */
     tt_int_op(link_specifier_get_ls_len(ls), ==, 18);
     for (unsigned int i = 0; i < sizeof(ipv6); i++) {
       ipv6[i] = link_specifier_get_un_ipv6_addr(ls, i);
     }
-    tt_mem_op(tor_addr_to_in6_addr8(&spec.address), ==, ipv6, sizeof(ipv6));
-    tt_int_op(link_specifier_get_un_ipv6_port(ls), ==, spec.port);
+    tt_mem_op(tor_addr_to_in6_addr8(&spec.u.ap.addr), ==, ipv6, sizeof(ipv6));
+    tt_int_op(link_specifier_get_un_ipv6_port(ls), ==, spec.u.ap.port);
 
     link_specifier_free(ls);
     tor_free(b64);
