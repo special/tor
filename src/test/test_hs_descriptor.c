@@ -221,7 +221,7 @@ test_create2_list_encoding(void *arg)
 static void
 test_link_specifier(void *arg)
 {
-  int ret;
+  ssize_t ret;
   hs_desc_link_specifier_t spec;
 
   (void) arg;
