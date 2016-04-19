@@ -104,64 +104,98 @@ encode_create2_list(unsigned int create2_bitmask)
  * This can't fail so caller can always assume a valid string being
  * returned. */
 STATIC char *
-encode_link_specifier(const hs_desc_link_specifier_t *spec)
+encode_link_specifiers(const smartlist_t *specs)
 {
+  /* Base64 encoded line containing all link specifiers. */
   char *ls_b64 = NULL;
-  link_specifier_t *ls;
+  /* Buffer holding the binary encoded link specifier(s). */
+  struct {
+    size_t len;
+    uint8_t *buf;
+  } encoded_ls = {0};
 
-  tor_assert(spec);
+  tor_assert(specs);
+  /* No link specifiers is a code flow error, can't happen. */
+  tor_assert(smartlist_len(specs) > 0);
+  tor_assert(smartlist_len(specs) <= UINT8_MAX);
 
-  ls = link_specifier_new();
+  /* First, we'll put our number of link specifier at the start of our
+   * encoded buffer. NSPEC is specified in tor-spec.txt as 1 byte. */
+  encoded_ls.len = sizeof(uint8_t);
+  encoded_ls.buf = tor_malloc_zero(encoded_ls.len);
+  set_uint8(encoded_ls.buf, smartlist_len(specs));
 
-  {
-    const tor_addr_t *spec_addr = &spec->address;
-    uint8_t ls_type = (tor_addr_is_v4(spec_addr) ? LS_IPV4 : LS_IPV6);
-    link_specifier_set_ls_type(ls, ls_type);
+  SMARTLIST_FOREACH_BEGIN(specs, const hs_desc_link_specifier_t *,
+                          spec) {
+    link_specifier_t *ls = link_specifier_new();
+    link_specifier_set_ls_type(ls, spec->type);
 
-    switch (ls_type) {
+    switch (spec->type) {
     case LS_IPV4:
-      link_specifier_set_un_ipv4_addr(ls, tor_addr_to_ipv4n(spec_addr));
-      link_specifier_set_un_ipv4_port(ls, spec->port);
+      link_specifier_set_un_ipv4_addr(ls,
+                                      tor_addr_to_ipv4n(&spec->u.ap.addr));
+      link_specifier_set_un_ipv4_port(ls, spec->u.ap.port);
       /* Four bytes IPv4 and two bytes port. */
-      link_specifier_set_ls_len(ls, 6);
+      link_specifier_set_ls_len(ls, sizeof(spec->u.ap.addr.addr.in_addr) +
+                                    sizeof(spec->u.ap.port));
       break;
     case LS_IPV6:
     {
-      const uint8_t *in6_addr = tor_addr_to_in6_addr8(spec_addr);
-      for (int idx = 0; idx < 16; idx++) {
+      size_t addr_len = link_specifier_getlen_un_ipv6_addr(ls);
+      const uint8_t *in6_addr = tor_addr_to_in6_addr8(&spec->u.ap.addr);
+      for (size_t idx = 0; idx < addr_len; idx++) {
         link_specifier_set_un_ipv6_addr(ls, idx, in6_addr[idx]);
       }
-      link_specifier_set_un_ipv6_port(ls, spec->port);
+      link_specifier_set_un_ipv6_port(ls, spec->u.ap.port);
       /* Sixteen bytes IPv6 and two bytes port. */
-      link_specifier_set_ls_len(ls, 18);
+      link_specifier_set_ls_len(ls, addr_len + sizeof(spec->u.ap.port));
+      break;
+    }
+    case LS_LEGACY_ID:
+    {
+      size_t legady_id_len = link_specifier_getlen_un_legacy_id(ls);
+      for (size_t idx = 0; idx < legady_id_len; idx++) {
+        link_specifier_set_un_legacy_id(ls, idx, spec->u.legacy_id[idx]);
+      }
+      link_specifier_set_ls_len(ls, legady_id_len);
       break;
     }
     default:
       tor_assert(0);
     }
-  }
 
-  /* Binary encode our object and then base64 encode it. */
+    /* Binary encode our object and append to our list of encoded link
+     * specifier so we can then base64 encode the whole chain. */
+    {
+      ssize_t bin_encoded_len, ret_len;
+      bin_encoded_len = link_specifier_encoded_len(ls);
+      tor_assert(bin_encoded_len > 0);
+      encoded_ls.len += bin_encoded_len;
+      /* Realloc our encoded buffer to fit the new size. */
+      encoded_ls.buf = tor_realloc(encoded_ls.buf, encoded_ls.len);
+      /* Encode the link specifier and put is in our newly allocated memory
+       * that is at the end of the encoded buffer. */
+      ret_len = link_specifier_encode(encoded_ls.buf +
+                                      (encoded_ls.len - bin_encoded_len),
+                                      bin_encoded_len, ls);
+      tor_assert(ret_len == bin_encoded_len);
+    }
+    /* No need, free it and go to the next. */
+    link_specifier_free(ls);
+  } SMARTLIST_FOREACH_END(spec);
+
+  /* Base64 encode our binary format. Add extra NULL byte for the base64
+   * encoded value. */
   {
-    uint8_t *bin_encoded;
-    ssize_t bin_encoded_len, ret_len, ls_b64_len;
-
-    bin_encoded_len = link_specifier_encoded_len(ls);
-    tor_assert(bin_encoded_len > 0);
-    bin_encoded = tor_malloc_zero(bin_encoded_len);
-    ret_len = link_specifier_encode(bin_encoded, bin_encoded_len, ls);
-    tor_assert(ret_len > 0);
-
-    /* Base64 encode our binary format. Add extra NULL byte for the base64
-     * encoded value. */
-    ls_b64_len = base64_encode_size(ret_len, 0) + 1;
+    ssize_t ret_len, ls_b64_len;
+    ls_b64_len = base64_encode_size(encoded_ls.len, 0) + 1;
     ls_b64 = tor_malloc_zero(ls_b64_len);
-    ret_len = base64_encode(ls_b64, ls_b64_len, (const char *) bin_encoded,
-                            bin_encoded_len, 0);
-    tor_assert(ret_len > 0);
+    ret_len = base64_encode(ls_b64, ls_b64_len, (const char *) encoded_ls.buf,
+                            encoded_ls.len, 0);
+    tor_assert(ret_len == (ls_b64_len - 1));
   }
 
-  link_specifier_free(ls);
+  tor_free(encoded_ls.buf);
   return ls_b64;
 }
 
@@ -177,7 +211,7 @@ encode_intro_point(const hs_desc_intro_point_t *ip)
 
   /* Encode link specifier. */
   {
-    char *ls_str = encode_link_specifier(&ip->link_specifier);
+    char *ls_str = encode_link_specifiers(ip->link_specifiers);
     tor_asprintf(&line_str, "%s %s", str_intro_point, ls_str);
     smartlist_add(lines, line_str);
     tor_free(ls_str);

@@ -45,16 +45,24 @@
 /* Link specifier object that contains information on how to extend to the
  * relay that is the address, port and handshake type. */
 typedef struct hs_desc_link_specifier_t {
-  /* IP address of the relay extending to. */
-  tor_addr_t address;
-  /* Port of the relay extending to. */
-  uint16_t port;
+  /* Indicate the type of link specifier. See trunnel ed25519_cert
+   * specification. */
+  uint8_t type;
+
+  /* It's either an address/port or a legacy identity fingerprint. */
+  union {
+    /* IP address and port of the relay use to extend. */
+    tor_addr_port_t ap;
+    /* Legacy identity. A 20-byte SHA1 identity fingerprint. */
+    uint8_t legacy_id[DIGEST_LEN];
+  } u;
 } hs_desc_link_specifier_t;
 
 /* Introduction point information located in a descriptor. */
 typedef struct hs_desc_intro_point_t {
-  /* Link specifier which details how to extend to the relay. */
-  hs_desc_link_specifier_t link_specifier;
+  /* Link specifier(s) which details how to extend to the relay. This list
+   * contains hs_desc_link_specifier_t object. It MUST have at least one. */
+  smartlist_t *link_specifiers;
 
   /* Authentication key used to establish the introduction point circuit and
    * cross-certifies the blinded public key for the replica. */
@@ -130,7 +138,7 @@ int hs_desc_encode_descriptor(const hs_descriptor_t *desc,
 
 STATIC int encode_cert(const tor_cert_t *cert, char **cert_str_out);
 STATIC char *encode_create2_list(unsigned int create2_bitmask);
-STATIC char *encode_link_specifier(const hs_desc_link_specifier_t *spec);
+STATIC char *encode_link_specifiers(const smartlist_t *specs);
 
 #endif /* HS_DESCRIPTOR_PRIVATE */
 
