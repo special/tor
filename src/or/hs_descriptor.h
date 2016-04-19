@@ -146,8 +146,9 @@ void hs_desc_encrypted_data_free(hs_desc_encrypted_data_t *desc);
 int hs_desc_encode_descriptor(const hs_descriptor_t *desc,
                               char **encoded_out);
 
-int hs_desc_decode(const char *encoded, const uint8_t *subcredential,
-                   hs_descriptor_t **desc_out);
+int hs_desc_decode_descriptor(const char *encoded,
+                              const uint8_t *subcredential,
+                              hs_descriptor_t **desc_out);
 int hs_desc_decode_plaintext(const char *encoded,
                              hs_desc_plaintext_data_t *desc_out);
 int hs_desc_decode_encrypted(const hs_descriptor_t *desc,

@@ -95,6 +95,94 @@ helper_build_hs_desc(void)
   return descp;
 }
 
+static void
+helper_compare_hs_desc(const hs_descriptor_t *desc1,
+                       const hs_descriptor_t *desc2)
+{
+  // hs_desc_plaintext_data_t
+  tt_int_op(desc1->plaintext_data.version, ==, desc2->plaintext_data.version);
+  tt_assert(tor_cert_eq(desc1->plaintext_data.signing_key_cert,
+                        desc2->plaintext_data.signing_key_cert));
+  tt_mem_op(desc1->plaintext_data.signing_kp.pubkey.pubkey, OP_EQ,
+            desc2->plaintext_data.signing_kp.pubkey.pubkey,
+            ED25519_PUBKEY_LEN);
+  tt_mem_op(desc1->plaintext_data.blinded_kp.pubkey.pubkey, OP_EQ,
+            desc2->plaintext_data.blinded_kp.pubkey.pubkey,
+            ED25519_PUBKEY_LEN);
+  tt_uint_op(desc1->plaintext_data.revision_counter, ==,
+             desc2->plaintext_data.revision_counter);
+
+  // XXX encrypted_blob? not currently defined in the encoding-side descriptor
+
+  // hs_desc_encrypted_data_t
+  tt_uint_op(desc1->encrypted_data.create2_ntor, ==,
+             desc2->encrypted_data.create2_ntor);
+
+  // auth_types
+  tt_int_op(!!desc1->encrypted_data.auth_types, ==,
+            !!desc2->encrypted_data.auth_types);
+  if (desc1->encrypted_data.auth_types && desc2->encrypted_data.auth_types) {
+    int i;
+    tt_int_op(smartlist_len(desc1->encrypted_data.auth_types), ==,
+              smartlist_len(desc2->encrypted_data.auth_types));
+    for (i = 0; i < smartlist_len(desc1->encrypted_data.auth_types); i++) {
+      tt_str_op(smartlist_get(desc1->encrypted_data.auth_types, i), OP_EQ,
+                smartlist_get(desc2->encrypted_data.auth_types, i));
+    }
+  }
+
+  // intro_points
+  {
+    int i, j;
+    tt_assert(desc1->encrypted_data.intro_points);
+    tt_assert(desc2->encrypted_data.intro_points);
+    tt_int_op(smartlist_len(desc1->encrypted_data.intro_points), ==,
+              smartlist_len(desc2->encrypted_data.intro_points));
+    for (i = 0; i < smartlist_len(desc1->encrypted_data.intro_points); i++) {
+      hs_desc_intro_point_t *ip1 = smartlist_get(desc1->encrypted_data
+                                                 .intro_points, i),
+                            *ip2 = smartlist_get(desc2->encrypted_data
+                                                 .intro_points, i);
+      tt_assert(tor_cert_eq(ip1->auth_key_cert, ip2->auth_key_cert));
+      tt_mem_op(ip1->enc_key.pubkey.public_key, OP_EQ,
+                ip2->enc_key.pubkey.public_key,
+                CURVE25519_PUBKEY_LEN);
+      tt_assert(crypto_pk_cmp_keys(ip1->enc_key_legacy, ip2->enc_key_legacy)
+                == 0);
+
+      tt_int_op(smartlist_len(ip1->link_specifiers), ==,
+                smartlist_len(ip2->link_specifiers));
+      for (j = 0; j < smartlist_len(ip1->link_specifiers); j++) {
+        hs_desc_link_specifier_t *ls1 = smartlist_get(ip1->link_specifiers, j),
+                                 *ls2 = smartlist_get(ip2->link_specifiers, j);
+        tt_int_op(ls1->type, ==, ls2->type);
+        switch (ls1->type) {
+          case LS_IPV4:
+          case LS_IPV6:
+            {
+              char *addr1 = tor_addr_to_str_dup(&ls1->u.ap.addr),
+                   *addr2 = tor_addr_to_str_dup(&ls2->u.ap.addr);
+              tt_str_op(addr1, OP_EQ, addr2);
+              tor_free(addr1);
+              tor_free(addr2);
+              tt_int_op(ls1->u.ap.port, ==, ls2->u.ap.port);
+            }
+            break;
+          case LS_LEGACY_ID:
+            tt_mem_op(ls1->u.legacy_id, OP_EQ, ls2->u.legacy_id,
+                      sizeof(ls1->u.legacy_id));
+            break;
+          default:
+            tt_assert(0);
+        }
+      }
+    }
+  }
+
+ done:
+  ;
+}
+
 /* Test certificate encoding put in a descriptor. */
 static void
 test_cert_encoding(void *arg)
@@ -264,13 +352,12 @@ test_encode_descriptor(void *arg)
 }
 
 static void
-test_decode_plaintext(void *arg)
+test_decode_descriptor(void *arg)
 {
   int ret;
   char *encoded = NULL;
   hs_descriptor_t *desc = helper_build_hs_desc();
-  hs_desc_plaintext_data_t desc_decoded;
-  memwipe(&desc_decoded, 0, sizeof(desc_decoded));
+  hs_descriptor_t *decoded = NULL;
 
   (void) arg;
 
@@ -278,13 +365,14 @@ test_decode_plaintext(void *arg)
   tt_int_op(ret, ==, 0);
   tt_assert(encoded);
 
-  ret = hs_desc_decode_plaintext(encoded, &desc_decoded);
+  ret = hs_desc_decode_descriptor(encoded, NULL, &decoded);
   tt_int_op(ret, ==, 0);
+  tt_assert(decoded);
 
-  // XXX compare
+  helper_compare_hs_desc(desc, decoded);
  done:
-  // XXX leaking desc_decoded contents
   hs_descriptor_free(desc);
+  hs_descriptor_free(decoded);
   tor_free(encoded);
 }
 
@@ -295,7 +383,7 @@ struct testcase_t hs_descriptor[] = {
     NULL, NULL },
   { "encode_descriptor", test_encode_descriptor, TT_FORK,
     NULL, NULL },
-  { "decode_plaintext", test_decode_plaintext, TT_FORK,
+  { "decode_descriptor", test_decode_descriptor, TT_FORK,
     NULL, NULL },
 
   END_OF_TESTCASES

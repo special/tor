@@ -1274,3 +1274,37 @@ hs_desc_decode_encrypted(const hs_descriptor_t *desc,
   return result;
 }
 
+/** XXX document */
+int hs_desc_decode_descriptor(const char *encoded,
+                              const uint8_t *subcredential,
+                              hs_descriptor_t **desc_out)
+{
+  hs_descriptor_t *desc = tor_malloc_zero(sizeof(hs_descriptor_t));
+  int re = -1;
+
+  tor_assert(encoded);
+  tor_assert(desc_out);
+
+  // XXX is this optional?
+  if (subcredential)
+    memcpy(desc->subcredential, subcredential, sizeof(desc->subcredential));
+
+  re = hs_desc_decode_plaintext(encoded, &desc->plaintext_data);
+  if (re < 0)
+    goto err;
+
+  re = hs_desc_decode_encrypted(desc, &desc->encrypted_data);
+  if (re < 0)
+    goto err;
+
+  *desc_out = desc;
+  return re;
+
+ err:
+  hs_descriptor_free(desc);
+  *desc_out = NULL;
+
+  tor_assert(re < 0);
+  return re;
+}
+
