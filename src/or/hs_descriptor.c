@@ -411,7 +411,7 @@ encrypt_data(const hs_descriptor_t *desc, const char *plaintext,
   }
 
   /* The salt is the first value. */
-  memcpy(final_blob + offset, salt, sizeof(salt));
+  memcpy(final_blob, salt, sizeof(salt));
   offset = sizeof(salt);
   /* Second value is the encrypted data. */
   memcpy(final_blob + offset, encrypted, encrypted_len);
