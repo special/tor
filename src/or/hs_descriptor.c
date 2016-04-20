@@ -223,7 +223,7 @@ encode_intro_point(const hs_desc_intro_point_t *ip)
     if (encode_cert(ip->auth_key_cert, &encoded_cert) < 0) {
       goto err;
     }
-    tor_asprintf(&line_str, "%s ed22519 %s", str_ip_auth_key, encoded_cert);
+    tor_asprintf(&line_str, "%s ed25519 %s", str_ip_auth_key, encoded_cert);
     smartlist_add(lines, line_str);
     tor_free(encoded_cert);
   }
@@ -246,7 +246,7 @@ encode_intro_point(const hs_desc_intro_point_t *ip)
                                              &key_str_len) < 0) {
       goto err;
     }
-    tor_asprintf(&line_str, "%s legacy %s", str_ip_enc_key, key_str);
+    tor_asprintf(&line_str, "%s legacy\n%s", str_ip_enc_key, key_str);
     smartlist_add(lines, line_str);
     tor_free(key_str);
   }
