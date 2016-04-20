@@ -258,7 +258,7 @@ test_link_specifier(void *arg)
     /* Should be 2 bytes for port and 4 bytes for IPv4. */
     tt_int_op(link_specifier_get_ls_len(ls), ==, 6);
     ipv4 = link_specifier_get_un_ipv4_addr(ls);
-    tt_int_op(tor_addr_to_ipv4n(&spec.u.ap.addr), ==, ipv4);
+    tt_int_op(tor_addr_to_ipv4h(&spec.u.ap.addr), ==, ipv4);
     tt_int_op(link_specifier_get_un_ipv4_port(ls), ==, spec.u.ap.port);
 
     link_specifier_free(ls);

@@ -112,7 +112,7 @@ encode_link_specifiers(const smartlist_t *specs)
   struct {
     size_t len;
     uint8_t *buf;
-  } encoded_ls = {0};
+  } encoded_ls = { 0, NULL };
 
   tor_assert(specs);
   /* No link specifiers is a code flow error, can't happen. */
@@ -133,7 +133,7 @@ encode_link_specifiers(const smartlist_t *specs)
     switch (spec->type) {
     case LS_IPV4:
       link_specifier_set_un_ipv4_addr(ls,
-                                      tor_addr_to_ipv4n(&spec->u.ap.addr));
+                                      tor_addr_to_ipv4h(&spec->u.ap.addr));
       link_specifier_set_un_ipv4_port(ls, spec->u.ap.port);
       /* Four bytes IPv4 and two bytes port. */
       link_specifier_set_ls_len(ls, sizeof(spec->u.ap.addr.addr.in_addr) +
