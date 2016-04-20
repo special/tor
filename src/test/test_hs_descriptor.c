@@ -34,7 +34,7 @@ helper_build_intro_point(const ed25519_keypair_t *blinded_kp, time_t now,
 
   ret = ed25519_keypair_generate(&auth_kp, 0);
   tt_int_op(ret, ==, 0);
-  ip->auth_key_cert = tor_cert_create(blinded_kp, CERT_TYPE_SIGNING_AUTH,
+  ip->auth_key_cert = tor_cert_create(blinded_kp, CERT_TYPE_HS_IP_AUTH,
                                       &auth_kp.pubkey, now, 3600,
                                       CERT_FLAG_INCLUDE_SIGNING_KEY);
   tt_assert(ip->auth_key_cert);
@@ -65,10 +65,9 @@ helper_build_hs_desc(void)
   ret = ed25519_keypair_generate(&desc->plaintext_data.blinded_kp, 0);
   tt_int_op(ret, ==, 0);
 
-  /* XXX: Change cert type to the HS type 0x08. */
   desc->plaintext_data.signing_key_cert =
     tor_cert_create(&desc->plaintext_data.blinded_kp,
-                    CERT_TYPE_SIGNING_AUTH,
+                    CERT_TYPE_HS_DESC_SIGN,
                     &desc->plaintext_data.signing_kp.pubkey, now,
                     3600,
                     CERT_FLAG_INCLUDE_SIGNING_KEY);
