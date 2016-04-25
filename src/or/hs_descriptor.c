@@ -495,6 +495,7 @@ encode_encrypted_data(const hs_descriptor_t *desc,
     buf = smartlist_join_strings(desc->encrypted_data.auth_types, " ", 0,
                                  NULL);
     tor_asprintf(&line_str, "%s %s", str_auth_required, buf);
+    smartlist_add(lines, line_str);
     tor_free(buf);
   }
 
