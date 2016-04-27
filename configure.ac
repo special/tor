@@ -757,6 +757,8 @@ all_libs_for_check="$TOR_ZLIB_LIBS $TOR_LIB_MATH $TOR_LIBEVENT_LIBS $TOR_OPENSSL
 
 CFLAGS_FTRAPV=
 CFLAGS_FWRAPV=
+CFLAGS_ASAN=
+CFLAGS_UBSAN=
 
 AC_COMPILE_IFELSE([AC_LANG_PROGRAM([], [
 #if !defined(__clang__)
@@ -789,14 +791,22 @@ m4_ifdef([AS_VAR_IF],[
     TOR_TRY_COMPILE_WITH_CFLAGS(-fwrapv, , CFLAGS_FWRAPV="-fwrapv", /bin/true)
 fi
 
-AC_SUBST(CFLAGS_FTRAPV)
-AC_SUBST(CFLAGS_WRAPV)
-
 if test "x$enable_expensive_hardening" = "xyes"; then
-   TOR_CHECK_CFLAGS([-fsanitize=address])
-   TOR_CHECK_CFLAGS([-fsanitize=undefined])
+   TOR_TRY_COMPILE_WITH_CFLAGS([-fsanitize=address], , CFLAGS_ASAN="-fsanitize=address", /bin/true)
+   TOR_TRY_COMPILE_WITH_CFLAGS([-fsanitize=undefined], , CFLAGS_UBSAN="-fsanitize=undefined", /bin/true)
    TOR_CHECK_CFLAGS([-fno-omit-frame-pointer])
 fi
+
+CFLAGS_BUGTRAP="$CFLAGS_FTRAPV $CFLAGS_ASAN $CFLAGS_UBSAN"
+CFLAGS_CONSTTIME="$CFLAGS_FWRAPV"
+
+dnl These cflags add bunches of branches, and we haven't been able to
+dnl persuade ourselves that they're suitable for code that needs to be
+dnl constant time.
+AC_SUBST(CFLAGS_BUGTRAP)
+dnl These cflags are variant ones sutable for code that needs to be
+dnl constant-time.
+AC_SUBST(CFLAGS_CONSTTIME)
 
 if test "x$enable_linker_hardening" != "xno"; then
     TOR_CHECK_LDFLAGS(-z relro -z now, "$all_ldflags_for_check", "$all_libs_for_check")

@@ -17,7 +17,7 @@ EXTHEADERS = \
 noinst_HEADERS+= $(EXTHEADERS)
 
 src_ext_ed25519_ref10_libed25519_ref10_a_CFLAGS=\
-  $(AM_CFLAGS)
+  @CFLAGS_CONSTTIME@
 
 src_ext_ed25519_ref10_libed25519_ref10_a_SOURCES= \
 	src/ext/ed25519/ref10/fe_0.c \
@@ -95,7 +95,7 @@ LIBED25519_REF10=src/ext/ed25519/ref10/libed25519_ref10.a
 noinst_LIBRARIES += $(LIBED25519_REF10)
 
 src_ext_ed25519_donna_libed25519_donna_a_CFLAGS=\
-  $(AM_CFLAGS) \
+  @CFLAGS_CONSTTIME@ \
   -DED25519_CUSTOMRANDOM \
   -DED25519_SUFFIX=_donna
 
@@ -138,7 +138,7 @@ LIBED25519_DONNA=src/ext/ed25519/donna/libed25519_donna.a
 noinst_LIBRARIES += $(LIBED25519_DONNA)
 
 src_ext_keccak_tiny_libkeccak_tiny_a_CFLAGS=\
-  $(AM_CFLAGS)
+  @CFLAGS_CONSTTIME@
 
 src_ext_keccak_tiny_libkeccak_tiny_a_SOURCES= \
 	src/ext/keccak-tiny/keccak-tiny-unrolled.c
