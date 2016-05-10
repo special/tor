@@ -74,3 +74,8 @@ struct link_specifier {
     default: u8 unrecognized[];
   };
 }
+
+struct link_specifier_list {
+  u8 n_spec;
+  struct link_specifier spec[n_spec];
+}
