@@ -71,35 +71,6 @@ err:
   return ret;
 }
 
-/* Return an allocated string containing a space separated list of handshake
- * type. NULL is returned if no handshake type were enabled. */
-STATIC char *
-encode_create2_list(unsigned int create2_bitmask)
-{
-  int nbit;
-  char *formats = NULL;
-
-  for (nbit = 1; nbit <= MAX_ONION_HANDSHAKE_TYPE; nbit++) {
-    char *buf;
-
-    /* Skip if we don't have the handshake enabled. */
-    if (!(create2_bitmask & nbit)) {
-      continue;
-    }
-
-    if (formats == NULL) {
-      /* First value to find, format it and try next. */
-      tor_asprintf(&formats, "%d", nbit);
-      continue;
-    }
-    tor_asprintf(&buf, "%s %d", formats, nbit);
-    tor_free(formats);
-    formats = buf;
-  }
-
-  return formats;
-}
-
 /* Encode the given link specifier object into a newly allocated string.
  * This can't fail so caller can always assume a valid string being
  * returned. */
@@ -458,7 +429,7 @@ encode_encrypted_data(const hs_descriptor_t *desc,
                       char **encrypted_blob_out)
 {
   int ret = -1;
-  char *encoded_str, *line_str, *encrypted_blob;
+  char *encoded_str, *line_str, *encrypted_blob, *buf;
   smartlist_t *lines = smartlist_new();
 
   tor_assert(desc);
@@ -466,14 +437,13 @@ encode_encrypted_data(const hs_descriptor_t *desc,
 
   /* Build the start of the section prior to the introduction points. */
   {
-    char *buf = encode_create2_list(desc->encrypted_data.create2_formats);
-    if (buf == NULL) {
+    if (!desc->encrypted_data.create2_ntor) {
       log_err(LD_BUG, "HS desc doesn't have recognized handshake type.");
       goto err;
     }
-    tor_asprintf(&line_str, "%s %s", str_create2_formats, buf);
+    tor_asprintf(&line_str, "%s %d", str_create2_formats,
+                 ONION_HANDSHAKE_TYPE_NTOR);
     smartlist_add(lines, line_str);
-    tor_free(buf);
 
     /* Put the required authentication line. */
     buf = smartlist_join_strings(desc->encrypted_data.auth_types, " ", 0,

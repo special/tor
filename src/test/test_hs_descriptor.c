@@ -75,7 +75,7 @@ helper_build_hs_desc(void)
   desc->plaintext_data.revision_counter = 42;
 
   /* Setup encrypted data section. */
-  desc->encrypted_data.create2_formats |= ONION_HANDSHAKE_TYPE_NTOR;
+  desc->encrypted_data.create2_ntor = 1;
   desc->encrypted_data.auth_types = smartlist_new();
   smartlist_add(desc->encrypted_data.auth_types, strdup("ed25519"));
   desc->encrypted_data.intro_points = smartlist_new();
@@ -184,45 +184,6 @@ test_cert_encoding(void *arg)
 }
 
 static void
-test_create2_list_encoding(void *arg)
-{
-  unsigned int bitmask = 0;
-  char *list = NULL;
-
-  (void) arg;
-
-  /* We deliberately don't test the TAP handshake because it shouldn't be
-   * supported in the first place and also it's value is 0x0 which is
-   * difficult to combine with other values... ;) */
-
-  bitmask |= ONION_HANDSHAKE_TYPE_FAST;
-  list = encode_create2_list(bitmask);
-  tt_assert(list);
-  tt_int_op(strcmp(list, "1"), ==, 0);
-  tor_free(list);
-
-  bitmask = ONION_HANDSHAKE_TYPE_FAST | ONION_HANDSHAKE_TYPE_NTOR;
-  list = encode_create2_list(bitmask);
-  tt_assert(list);
-  tt_int_op(strcmp(list, "1 2"), ==, 0);
-  tor_free(list);
-
-  /* Invalid. */
-  bitmask = 0x8;
-  list = encode_create2_list(bitmask);
-  tt_assert(!list);
-
-  bitmask = ONION_HANDSHAKE_TYPE_NTOR | 0x8;
-  list = encode_create2_list(bitmask);
-  tt_assert(list);
-  tt_int_op(strcmp(list, "2"), ==, 0);
-  tor_free(list);
-
- done:
-  return;
-}
-
-static void
 test_link_specifier(void *arg)
 {
   ssize_t ret;
@@ -319,8 +280,6 @@ test_encode_descriptor(void *arg)
 
 struct testcase_t hs_descriptor[] = {
   { "cert_encoding", test_cert_encoding, TT_FORK,
-    NULL, NULL },
-  { "create2_list_encoding", test_create2_list_encoding, TT_FORK,
     NULL, NULL },
   { "link_specifier", test_link_specifier, TT_FORK,
     NULL, NULL },

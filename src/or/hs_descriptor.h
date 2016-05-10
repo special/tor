@@ -20,10 +20,6 @@
 /* Current descriptor format supported version. */
 #define HS_DESC_SUPPORTED_FORMAT_VERSION 3
 
-/* Bitmask width of CREATE2 cell supported formats. This value allows for a
- * maximum number of 2^16 handshake types listed in tor-spec.txt. */
-#define HS_DESC_CREATE2_FORMATS_BITMASK_WIDTH 16
-
 /* Length of the salt needed for the encrypted section of a descriptor. */
 #define HS_DESC_ENCRYPTED_SALT_LEN 16
 /* Length of the secret input needed for the KDF construction which derives
@@ -78,9 +74,9 @@ typedef struct hs_desc_intro_point_t {
 /* The encrypted data section of a descriptor. Obviously the data in this is
  * in plaintext but encrypted once encoded. */
 typedef struct hs_desc_encrypted_data_t {
-  /* CREATE2 cell supported formats. This is a bitmask of recognized
-   * handshake types. */
-  unsigned int create2_formats : HS_DESC_CREATE2_FORMATS_BITMASK_WIDTH;
+  /* Bitfield of CREATE2 cell supported formats. The only currently supported
+   * format is ntor. */
+  unsigned int create2_ntor : 1;
 
   /* A list of authentication types that a client must at least support one
    * in order to contact the service. Contains NULL terminated strings. */
@@ -137,7 +133,6 @@ int hs_desc_encode_descriptor(const hs_descriptor_t *desc,
 #ifdef HS_DESCRIPTOR_PRIVATE
 
 STATIC int encode_cert(const tor_cert_t *cert, char **cert_str_out);
-STATIC char *encode_create2_list(unsigned int create2_bitmask);
 STATIC char *encode_link_specifiers(const smartlist_t *specs);
 
 #endif /* HS_DESCRIPTOR_PRIVATE */
