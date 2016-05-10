@@ -1096,6 +1096,7 @@ decode_introduction_point(const char *text, const char *end)
   }
 
   /* XXX not checking expiration; does that matter? */
+  // XXX Not checking that the signing key is the right signing key
   ip->auth_key_cert = tor_cert_parse((const uint8_t *) tok->object_body,
                                      tok->object_size);
   if (!ip->auth_key_cert) {
