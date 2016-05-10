@@ -106,24 +106,15 @@ encode_create2_list(unsigned int create2_bitmask)
 STATIC char *
 encode_link_specifiers(const smartlist_t *specs)
 {
-  /* Base64 encoded line containing all link specifiers. */
-  char *ls_b64 = NULL;
-  /* Buffer holding the binary encoded link specifier(s). */
-  struct {
-    size_t len;
-    uint8_t *buf;
-  } encoded_ls = { 0, NULL };
+  char *encoded_b64 = NULL;
+  link_specifier_list_t *lslist = link_specifier_list_new();
 
   tor_assert(specs);
   /* No link specifiers is a code flow error, can't happen. */
   tor_assert(smartlist_len(specs) > 0);
   tor_assert(smartlist_len(specs) <= UINT8_MAX);
 
-  /* First, we'll put our number of link specifier at the start of our
-   * encoded buffer. NSPEC is specified in tor-spec.txt as 1 byte. */
-  encoded_ls.len = sizeof(uint8_t);
-  encoded_ls.buf = tor_malloc_zero(encoded_ls.len);
-  set_uint8(encoded_ls.buf, smartlist_len(specs));
+  link_specifier_list_set_n_spec(lslist, smartlist_len(specs));
 
   SMARTLIST_FOREACH_BEGIN(specs, const hs_desc_link_specifier_t *,
                           spec) {
@@ -164,39 +155,32 @@ encode_link_specifiers(const smartlist_t *specs)
       tor_assert(0);
     }
 
-    /* Binary encode our object and append to our list of encoded link
-     * specifier so we can then base64 encode the whole chain. */
-    {
-      ssize_t bin_encoded_len, ret_len;
-      bin_encoded_len = link_specifier_encoded_len(ls);
-      tor_assert(bin_encoded_len > 0);
-      encoded_ls.len += bin_encoded_len;
-      /* Realloc our encoded buffer to fit the new size. */
-      encoded_ls.buf = tor_realloc(encoded_ls.buf, encoded_ls.len);
-      /* Encode the link specifier and put is in our newly allocated memory
-       * that is at the end of the encoded buffer. */
-      ret_len = link_specifier_encode(encoded_ls.buf +
-                                      (encoded_ls.len - bin_encoded_len),
-                                      bin_encoded_len, ls);
-      tor_assert(ret_len == bin_encoded_len);
-    }
-    /* No need, free it and go to the next. */
-    link_specifier_free(ls);
+    link_specifier_list_add_spec(lslist, ls);
   } SMARTLIST_FOREACH_END(spec);
 
-  /* Base64 encode our binary format. Add extra NULL byte for the base64
-   * encoded value. */
   {
-    ssize_t ret_len, ls_b64_len;
-    ls_b64_len = base64_encode_size(encoded_ls.len, 0) + 1;
-    ls_b64 = tor_malloc_zero(ls_b64_len);
-    ret_len = base64_encode(ls_b64, ls_b64_len, (const char *) encoded_ls.buf,
-                            encoded_ls.len, 0);
-    tor_assert(ret_len == (ls_b64_len - 1));
+    uint8_t *encoded;
+    ssize_t encoded_len, encoded_b64_len, ret;
+
+    encoded_len = link_specifier_list_encoded_len(lslist);
+    tor_assert(encoded_len > 0);
+    encoded = tor_malloc_zero(encoded_len);
+    ret = link_specifier_list_encode(encoded, encoded_len, lslist);
+    tor_assert(ret == encoded_len);
+
+    /* Base64 encode our binary format. Add extra NULL byte for the base64
+     * encoded value. */
+    encoded_b64_len = base64_encode_size(encoded_len, 0) + 1;
+    encoded_b64 = tor_malloc_zero(encoded_b64_len);
+    ret = base64_encode(encoded_b64, encoded_b64_len, (const char *) encoded,
+                        encoded_len, 0);
+    tor_assert(ret == (encoded_b64_len - 1));
+
+    tor_free(encoded);
   }
 
-  tor_free(encoded_ls.buf);
-  return ls_b64;
+  link_specifier_list_free(lslist);
+  return encoded_b64;
 }
 
 /* Encode an introductin point object and return a newly allocated string
